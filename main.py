@@ -9,9 +9,11 @@ if __name__ == '__main__':
     show_debug = True
 
     algo = 1 #1-Sobel, 2-Canny, 3-Edgeless
-    morph = 1 #1-blackhat, 2-tophat
+    morph = 'bh' #bh-blackhat, th-tophat
     minAR = 3.5
     maxAR = 5.5
+    keep = 5
+    rectKern = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 5))
 
     def debug_imshow(img, title="No Titles", waitKey=True):
         if show_debug:
@@ -33,7 +35,43 @@ if __name__ == '__main__':
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         return img
     
+    def morphology_operation(gray, morph='bh'):
+        squareKern = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        structure = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, squareKern)
+        debug_imshow(structure, "Closing operation")
+        structure = cv2.threshold(structure, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+        #debug_imshow(structure ,"Structure")
+        if morph == 'bh':
+            blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, rectKern)
+            debug_imshow(blackhat, "blackhat")
+            return [blackhat, structure]
+        elif morph == 'th':
+            tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKern)
+            debug_imshow(tophat, "tophat")
+            return [tophat, structure]
+    
 
     images_list = load_images(image_dir)
     for img in images_list:
+        #start pipeline
+        gray = convert_to_gray_image(img)
+        morphology = morphology_operation(gray, morph)
+        morph = morphology[0]
+        luminance = morphology[1]
+        
+        if algo == 1:
+            gradX = cv2.Sobel(morph, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=3)
+            gradX = np.absolute(gradX)
+            (minVal, maxVal) = (np.min(gradX), np.max(gradX))
+            gradX = 255 * ((gradX - minVal) / (maxVal - minVal))
+            gradX = gradX.astype("uint8")
+            #debug_imshow(gradX, "Scharr")
+        elif algo == 2:
+            canny = cv2.Canny(morph, 200, 230)
+            #debug_imshow(canny, "Canny")
+
+        gaussian = cv2.GaussianBlur(canny, (5, 5), 0)
+        gaussian = cv2.morphologyEx(gaussian, cv2.MORPH_CLOSE, rectKern)
+        thresh = cv2.threshold(gaussian, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+        
 
