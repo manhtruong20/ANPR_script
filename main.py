@@ -8,7 +8,7 @@ import pytesseract
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR/tesseract.exe'
 
 if __name__ == '__main__':
-    image_dir = './images'
+    image_dir = './image'
 	
     show_debug = True
 
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     
     def convert_to_gray_image(img):
         img = cv2.bilateralFilter(img, 3, 105, 105)
-        #debug_imshow(img)
+        debug_imshow(img, "bilateralFilter")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         return gray
     
@@ -103,6 +103,7 @@ if __name__ == '__main__':
     images_list = load_images(image_dir)
     for img in images_list:
         #start pipeline
+        debug_imshow(img, "origin")
         gray = convert_to_gray_image(img)
         morphology = morphology_operation(gray, morph_mode)
         morph = morphology[0]
