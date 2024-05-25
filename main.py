@@ -2,6 +2,10 @@ import numpy as np
 import imutils
 import cv2
 import os
+from skimage.segmentation import clear_border
+import pytesseract
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR/tesseract.exe'
 
 if __name__ == '__main__':
     image_dir = './images'
@@ -9,11 +13,13 @@ if __name__ == '__main__':
     show_debug = True
 
     algo = 1 #1-Sobel, 2-Canny, 3-Edgeless
-    morph = 'bh' #bh-blackhat, th-tophat
+    morph_mode = 'bh' #bh-blackhat, th-tophat
     minAR = 3.5
     maxAR = 5.5
     keep = 5
     rectKern = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 5))
+    clearBorder = False
+    psm = 7
 
     def debug_imshow(img, title="No Titles", waitKey=True):
         if show_debug:
@@ -33,21 +39,21 @@ if __name__ == '__main__':
         img = cv2.bilateralFilter(img, 3, 105, 105)
         #debug_imshow(img)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        return img
+        return gray
     
-    def morphology_operation(gray, morph='bh'):
+    def morphology_operation(gray, morphology='bh'):
         squareKern = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         structure = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, squareKern)
-        debug_imshow(structure, "Closing operation")
+        #debug_imshow(structure, "Closing operation")
         structure = cv2.threshold(structure, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
         #debug_imshow(structure ,"Structure")
-        if morph == 'bh':
+        if morph_mode == 'bh':
             blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, rectKern)
-            debug_imshow(blackhat, "blackhat")
+            #debug_imshow(blackhat, "blackhat")
             return [blackhat, structure]
-        elif morph == 'th':
+        elif morph_mode == 'th':
             tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKern)
-            debug_imshow(tophat, "tophat")
+            #debug_imshow(tophat, "tophat")
             return [tophat, structure]
         
     def find_contours(img, keep=5):
@@ -56,12 +62,49 @@ if __name__ == '__main__':
         cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:keep]
         return cnts
     
+    def locate_license_plate(gray, candidates, minAR, maxAR, clearBorder=False):
+        lpCnt = None
+        roi = None
+
+        candidates = sorted(candidates, key=cv2.contourArea)
+
+        for c in candidates:
+            (x, y, w, h) = cv2.boundingRect(c)
+            ar = w / float(h)
+
+            if ar >= minAR and ar <= maxAR:
+                lpCnt = c
+                licensePlate = gray[y:y + h, x:x + w]
+                roi = cv2.threshold(licensePlate, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
+
+                if clearBorder:
+                    roi = clear_border(roi)
+
+                #debug_imshow(licensePlate, "License Plate")
+                #debug_imshow(roi, "ROI")
+                break
+        return (roi, lpCnt)
+    
+    def build_tesseract_options(psm):
+        alphanumeric = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        options = "-c tessedit_char_whitelist={}".format(alphanumeric)
+        options += " --psm {}".format(psm)
+        return options
+    
+    def cleanText(text):
+        output = ''
+        text = text.strip()
+        for char in text:
+            if ord(char)<128:
+                output = output.join(char)
+        return text
+
 
     images_list = load_images(image_dir)
     for img in images_list:
         #start pipeline
         gray = convert_to_gray_image(img)
-        morphology = morphology_operation(gray, morph)
+        morphology = morphology_operation(gray, morph_mode)
         morph = morphology[0]
         luminance = morphology[1]
         
@@ -72,11 +115,15 @@ if __name__ == '__main__':
             gradX = 255 * ((gradX - minVal) / (maxVal - minVal))
             gradX = gradX.astype("uint8")
             #debug_imshow(gradX, "Scharr")
+            edge_img = gradX
         elif algo == 2:
             canny = cv2.Canny(morph, 200, 230)
             #debug_imshow(canny, "Canny")
+            edge_img = canny
+        elif algo == 3:
+            edge_img = morph
 
-        gaussian = cv2.GaussianBlur(canny, (5, 5), 0)
+        gaussian = cv2.GaussianBlur(edge_img, (5, 5), 0)
         gaussian = cv2.morphologyEx(gaussian, cv2.MORPH_CLOSE, rectKern)
         thresh = cv2.threshold(gaussian, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
 
@@ -90,9 +137,27 @@ if __name__ == '__main__':
 
         cnts = find_contours(thresh.copy(), keep)
 
-"""
-        oriCopy = img.copy()
+        """oriCopy = img.copy()
         for c in cnts:
             cv2.drawContours(oriCopy, [c], -1, 255, 2)
-            debug_imshow(oriCopy, "Contours")
-"""
+            debug_imshow(oriCopy, "Contours")"""
+
+        lpText = None
+        (lp, lpCnt) = locate_license_plate(gray, cnts, minAR, maxAR, clearBorder)
+
+        #debug_imshow(lp)
+        #debug_imshow(img)
+
+        if lp is not None:
+            options = build_tesseract_options(psm)
+            lpText = pytesseract.image_to_string(lp, config=options)
+            lpText = cleanText(lpText)
+            print(lpText)
+
+        if lpText is not None and lpCnt is not None:
+            box = cv2.boxPoints(cv2.minAreaRect(lpCnt))
+            box = box.astype("int")
+            cv2.drawContours(img, [box], -1, (0, 255, 0), 2)
+            (x, y, w, h) = cv2.boundingRect(lpCnt)
+            cv2.putText(img, lpText, (x, y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2)
+            debug_imshow(img, "Final")
