@@ -49,6 +49,12 @@ if __name__ == '__main__':
             tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKern)
             debug_imshow(tophat, "tophat")
             return [tophat, structure]
+        
+    def find_contours(img, keep=5):
+        cnts = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = imutils.grab_contours(cnts)
+        cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:keep]
+        return cnts
     
 
     images_list = load_images(image_dir)
@@ -73,5 +79,20 @@ if __name__ == '__main__':
         gaussian = cv2.GaussianBlur(canny, (5, 5), 0)
         gaussian = cv2.morphologyEx(gaussian, cv2.MORPH_CLOSE, rectKern)
         thresh = cv2.threshold(gaussian, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-        
 
+        thresh = cv2.erode(thresh, None, iterations=3)
+        thresh = cv2.dilate(thresh, None, iterations=3)
+        #debug_imshow(thresh, "ero/dil")
+
+        thresh = cv2.bitwise_and(thresh, thresh, mask=luminance)
+        thresh = cv2.dilate(thresh, None, iterations=2)
+        thresh = cv2.erode(thresh, None, iterations=1)
+
+        cnts = find_contours(thresh.copy(), keep)
+
+"""
+        oriCopy = img.copy()
+        for c in cnts:
+            cv2.drawContours(oriCopy, [c], -1, 255, 2)
+            debug_imshow(oriCopy, "Contours")
+"""
