@@ -4,6 +4,7 @@ import cv2
 import os
 from skimage.segmentation import clear_border
 import pytesseract
+import datetime
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR/tesseract.exe'
 
@@ -12,7 +13,7 @@ if __name__ == '__main__':
 	
     show_debug = True
 
-    algo = 1 #1-Sobel, 2-Canny, 3-Edgeless
+    algo = 3 #1-Sobel, 2-Canny, 3-Edgeless
     morph_mode = 'bh' #bh-blackhat, th-tophat
     minAR = 3.5
     maxAR = 5.5
@@ -20,6 +21,16 @@ if __name__ == '__main__':
     rectKern = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 5))
     clearBorder = False
     psm = 7
+
+    def save(img, ex=""):
+        directory = r'C:\Users\Admin\Desktop\Image'
+        os.chdir(directory)
+        time = datetime.datetime.now()
+        if ex != "":
+            ex = "__"+ex
+        name = time.strftime("image_%b_%d_%Y_%H-%M-%S")+ex+(".png")
+        cv2.imwrite(name, img)
+        print(f"saved {name}")
 
     def debug_imshow(img, title="No Titles", waitKey=True):
         if show_debug:
@@ -37,8 +48,10 @@ if __name__ == '__main__':
     
     def convert_to_gray_image(img):
         img = cv2.bilateralFilter(img, 3, 105, 105)
-        debug_imshow(img, "bilateralFilter")
+        #debug_imshow(img, "bilateralFilter")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        #debug_imshow(gray, "gray")
+        #save(gray, "gray")
         return gray
     
     def morphology_operation(gray, morphology='bh'):
@@ -50,11 +63,42 @@ if __name__ == '__main__':
         if morph_mode == 'bh':
             blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, rectKern)
             #debug_imshow(blackhat, "blackhat")
+            #save(blackhat, "blackhat")
             return [blackhat, structure]
         elif morph_mode == 'th':
             tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, rectKern)
             #debug_imshow(tophat, "tophat")
+            #save(tophat, "tophat")
             return [tophat, structure]
+    
+    def find_edge(morph, algo):
+        if algo == 1:
+            gradX = cv2.Sobel(morph, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=3)
+            gradX = np.absolute(gradX)
+            (minVal, maxVal) = (np.min(gradX), np.max(gradX))
+            gradX = 255 * ((gradX - minVal) / (maxVal - minVal))
+            gradX = gradX.astype("uint8")
+            #debug_imshow(gradX, "Sobel")
+            #save(gradX, "Sobel")
+            return gradX
+        elif algo == 2:
+            """
+            morph = cv2.GaussianBlur(morph,(5,5),0)
+            gradX = cv2.Sobel(morph, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=3)
+            gradX = cv2.Sobel(morph, ddepth=cv2.CV_32F, dx=0, dy=1, ksize=3)
+            gradX = np.absolute(gradX)
+            (minVal, maxVal) = (np.min(gradX), np.max(gradX))
+            gradX = 255 * ((gradX - minVal) / (maxVal - minVal))
+            gradX = gradX.astype("uint8")
+            debug_imshow(gradX, "Canny_sobel_non")
+            save(gradX, "Canny_sobel_non")
+            """
+            canny = cv2.Canny(morph, 450, 500) #400, 500
+            #debug_imshow(canny, "Canny")
+            #save(canny, "Canny002")
+            return canny
+        elif algo == 3:
+            return morph
         
     def find_contours(img, keep=5):
         cnts = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -92,12 +136,7 @@ if __name__ == '__main__':
         return options
     
     def cleanText(text):
-        output = ''
-        text = text.strip()
-        for char in text:
-            if ord(char)<128:
-                output = output.join(char)
-        return text
+        return "".join([c if ord(c) < 128 else "" for c in text]).strip()
 
 
     images_list = load_images(image_dir)
@@ -107,22 +146,12 @@ if __name__ == '__main__':
         gray = convert_to_gray_image(img)
         morphology = morphology_operation(gray, morph_mode)
         morph = morphology[0]
+        debug_imshow(morph,"morph")
         luminance = morphology[1]
         
-        if algo == 1:
-            gradX = cv2.Sobel(morph, ddepth=cv2.CV_32F, dx=1, dy=0, ksize=3)
-            gradX = np.absolute(gradX)
-            (minVal, maxVal) = (np.min(gradX), np.max(gradX))
-            gradX = 255 * ((gradX - minVal) / (maxVal - minVal))
-            gradX = gradX.astype("uint8")
-            #debug_imshow(gradX, "Scharr")
-            edge_img = gradX
-        elif algo == 2:
-            canny = cv2.Canny(morph, 200, 230)
-            #debug_imshow(canny, "Canny")
-            edge_img = canny
-        elif algo == 3:
-            edge_img = morph
+        edge_img = find_edge(morph, algo)
+        
+        #debug_imshow(edge_img, "Edge image")
 
         gaussian = cv2.GaussianBlur(edge_img, (5, 5), 0)
         gaussian = cv2.morphologyEx(gaussian, cv2.MORPH_CLOSE, rectKern)
